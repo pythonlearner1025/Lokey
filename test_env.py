@@ -1,5 +1,7 @@
 import gym
 from kuhn_poker_env import KuhnPokerEnv
+from copy import deepcopy
+from itertools import combinations
 
 env = KuhnPokerEnv(n_players=3)
 
@@ -12,3 +14,38 @@ while not done:
     env.render()
     if done:
         print(f"Game over! Reward: {reward}")
+
+def sample_action(player_turn, env):
+    pass
+
+def cfr(player, env):
+    if env.is_done(player):
+        return env.player_payoffs(player)
+    elif env.current_player == player:
+        actions = env.available_actions(player)
+        for action in actions:
+            newenv = deepcopy(env)
+            newenv.step(action)
+            v = cfr(player, newenv)
+        
+        # calculate regrets & advantage
+
+        # add to dict
+    else:
+        sampled_action = sample_action(env.turn(), env)
+        env.step(sampled_action)
+        return cfr(player, env)
+
+CFR_ITERATIONS = 1000
+n_players = 3
+
+# cfr update step
+# card assignment
+
+for i in range(CFR_ITERATIONS):
+   # assign cards 
+    for cards in combinations([0,1,2,3,4], 3):
+        env = KuhnPokerEnv(n_players=3, cards)
+        iter_dict = {}
+        for player in range(n_players):
+            cfr(player, env, iter_dict)
