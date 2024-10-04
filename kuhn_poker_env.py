@@ -1,269 +1,99 @@
-from copy import copy
-from itertools import dropwhile
-from typing import List
-import enum
-import gym.logger
-import numpy as np
 import gym
-from gym.spaces import Discrete, Tuple
-from .one_hot_space import OneHotEncoding
-
-
-class ActionType(enum.Enum):
-    '''    
-    There are theoretically more actions (check, fold, etc) but these choices boil down to
-    "weak" or "strong" actions
-    '''
-    PASS = 0
-    BET = 1
+from gym import spaces
+import numpy as np
 
 
 class KuhnPokerEnv(gym.Env):
-    '''
-    Implementation of Kuhn's poker in accordance to OpenAI gym environment interface.
-    '''
+    """Multiplayer Kuhn Poker Environment"""
 
-    def __init__(self, number_of_players=3, deck_size=5, betting_rounds=3, ante=1):
-        '''
-        :param number_of_players: Number of players 
-        :param deck_size: Deck size of 5, with 10 J Q K A
-        :param betting_rounds: One betting round per player
-        :param ante: Amount of utility that all players must pay at the beginning
-        '''
-        if not number_of_players == betting_rounds:
-            gym.logger.warn("Are you sure you want different number of betting rounds and players? " +
-                            "Players: " + number_of_players + " Betting Rounds: " + betting_rounds)
+    def __init__(self, n_players=3):
+        super(KuhnPokerEnv, self).__init__()
 
-        # class variables
-        self.done = False
-        self.number_of_players = number_of_players
-        self.deck_size = deck_size
-        self.betting_rounds = betting_rounds
-        self.ante = ante
+        self.n_players = n_players
+        # Kuhn poker cards (10-A)
+        self.deck = [0, 1, 2, 3, 4]
+        self.folded = [False] * n_players
+        self.current_player = 0
 
-        # player action space
-        self.action_space = Discrete(len(ActionType))
-        self.action_space_size = len(ActionType)
+        # Define action space (0 = fold, 1 = check/call, 2 = bet)
+        self.action_space = spaces.Discrete(3)
 
-        # observation spaces represent the game's information
-        single_observation_space = self.calculate_observation_space()
-        self.observation_space = Tuple([single_observation_space
-                                       for _ in range(self.number_of_players)])
+        # Define observation space (hand plus betting/folding status)
+        self.observation_space = spaces.Box(
+            low=0, high=4, shape=(n_players + 2,), dtype=np.int32)
 
-        # TODO len(self.random_initial_state_vector())
-        self.state_space_size = None
-
-        self.betting_history_index = (self.number_of_players +
-                                      self.number_of_players * self.deck_size)
-        self.betting_round_offset = self.number_of_players * \
-            (1 + len(ActionType))
+        # Initialize the game state
+        self.reset()
 
     def reset(self):
-        '''
-        Reinitialize all beginning variables for another run of the game
-        '''
-        self.done = False
+        """Reset the environment to start a new game."""
+        np.random.shuffle(self.deck)
+        self.hands = self.deck[:self.n_players]
+        # Track the current bet for each player
+        self.bets = [0] * self.n_players
+        self.folded = [False] * self.n_players  # Track if a player has folded
+        self.pot = 0
         self.current_player = 0
-        self.history: List[ActionType] = []
-        self.state = self.random_initial_state_vector()
-        # TODO: Consider changing who bets first? what if the collaborator is not the first to act/propose?
-        self.first_to_bet, self.winner = None, None
-        # Players that will face off in card comparison after betting ends
-        # TODO: This might change based on who folded after another player bets
-        self.elegible_players = [i for i in range(self.number_of_players)]
-        return [self.observation_from_state(player_id=i)
-                for i in range(self.number_of_players)]
+        return self._get_observation()
 
     def step(self, action):
-        '''
-        Increment the game based on the current player's actions
-        '''
-        assert 0 <= action <= len(ActionType), \
-            f"Action outside of valid range: [0,{len(ActionType)}]"
-        assert not self.done, "Episode is over"
-        move = ActionType(action)
+        """Apply an action and move the game state forward."""
+        assert self.action_space.contains(action), f"Invalid action: {action}"
 
-        # update the state based on the current player and their move
-        self.state = self.update_state(self.current_player, move)
+        if action == 2:  # Player bets
+            self.bets[self.current_player] += 1
+            self.pot += 1
+        elif action == 0:
+            self.folded[self.current_player] = True
 
-        if self.done:
-            reward_vector = self.reward_vector_for_winner(self.winner)
-        else:
-            reward_vector = [0] * self.number_of_players
+        # Update player turn
+        self._next_player()
 
-        info = {}
-        return [self.observation_from_state(i) for i in range(self.number_of_players)], \
-            reward_vector, self.done, info
+        done = self._is_done()  # Check if the game is done
+        reward = self._get_reward() if done else 0
 
-    def calculate_reward(self, state):
-        # TODO: No clue why this is if False at the start
-        if False:
-            pass
-        return [0] * self.number_of_players
+        return self._get_observation(), reward, done, {}
 
-    def update_state(self, player_id, move):
-        self.history.append(move)
+    def _next_player(self):
+        """
+        Move to the next player who hasn't folded.
+        """
+        while True:
+            self.current_player = (self.current_player + 1) % self.n_players
+            if not self.folded[self.current_player]:
+                break
 
-        # which player is going to perform their action
-        if self.first_to_bet is None:
-            player_move_index = self.betting_history_index
-        else:
-            player_move_index = self.betting_history_index + self.betting_round_offset
+    def render(self, mode='human'):
+        """Render the current state of the game."""
+        print(f"Player hands: {self.hands}")
+        print(f"Current player: {self.current_player}")
+        print(f"Current bets: {self.bets}")
+        print(f"Pot: {self.pot}")
 
-        # TODO: Figure out this line
-        player_move_index += self.current_player * (1 + len(ActionType))
+    def _get_observation(self):
+        """Return the observation for the current player."""
+        # Example: player's hand and betting history and folding
+        # return np.array([self.hands[self.current_player]] + self.bets)
+        return np.array([self.hands[self.current_player]] + self.bets + [int(self.folded[self.current_player])])
 
-        if move == ActionType.PASS:
-            self.state[player_move_index] = 0
-            self.state[player_move_index + 1] = 1
-        if move == ActionType.BET:
-            self.state[player_move_index] = 0
-            self.state[player_move_index + 2] = 1
-            if self.first_to_bet is None:
-                self.first_to_bet = player_id
-                self.elegible_players = []
-            self.elegible_players += [player_id]
-            self.state[-self.number_of_players + player_id] += 1
+    def _is_done(self):
+        """Check if the game is over (e.g., all players have taken their turn)."""
+        # return sum(self.bets) >= self.n_players  # Simplistic end condition
+        # Game ends if only one player remains or if all players have bet or folded
+        active_players = sum(not f for f in self.folded)
+        return active_players == 1 or sum(self.bets) >= self.n_players
 
-        self.state[self.current_player] = 0
-        self.current_player = (self.current_player +
-                               1) % self.number_of_players
-        self.state[self.current_player] = 1
+    def _get_reward(self):
+        """Calculate the reward at the end of the game."""
+        # Compare hands at the end and determine the winner
+        active_players = [i for i in range(
+            self.n_players) if not self.folded[i]]
 
-        if self.is_state_terminal():
-            self.done = True
-            self.winner = self.get_winner()
+        if len(active_players) == 1:
+            return self.pot if self.current_player == active_players[0] else 0
 
-        return self.state
-
-    def get_winner(self):
-        base_i = self.number_of_players
-        def player_hand(p_i): return slice(base_i + p_i * self.deck_size,
-                                           base_i + p_i * self.deck_size + self.deck_size)
-        player_hands = [self.state[player_hand(i)]
-                        for i in self.elegible_players]
-        card_values = [hand.index(1) for hand in player_hands]
-        max_card = max(card_values)
-        winner = self.elegible_players[card_values.index(max_card)]
-        return winner
-
-    def calculate_observation_space(self):
-        player_id = OneHotEncoding(self.number_of_players)
-        dealt_card = OneHotEncoding(self.deck_size)
-
-        betting_states = [OneHotEncoding(len(ActionType) + 1)
-                          for _ in range(self.number_of_players)
-                          for _ in range(self.betting_rounds)]
-        pot_contributions = Tuple([Discrete(3)
-                                  for _ in range(self.number_of_players)])
-        return Tuple([player_id, dealt_card, *betting_states, pot_contributions])
-
-    def is_state_terminal(self):
-        return self.all_players_passed() or self.betting_is_over()
-
-    def all_players_passed(self):
-        '''
-        If all actions in our history equal the number of players and are all pass,
-        then we know all players passed
-        '''
-        all_players_acted = len(self.history) == self.number_of_players
-        return all_players_acted and all(map(lambda m: m == ActionType.PASS, self.history))
-
-    def betting_is_over(self):
-        '''
-        If we remove all betting moves from our history and there are n moves remaining,
-        then we know all responses have happened
-        '''
-        # TODO: I dont think this includes multiple bets in a row from multiple players
-        after_bet_moves = dropwhile(
-            lambda m: m != ActionType.BET, self.history)
-        return len(list(after_bet_moves)) == self.number_of_players
-
-    def get_total_pot(self):
-        return sum(self.state[-self.number_of_players:])
-
-    def get_player_pot(self, player_id):
-        assert 0 <= player_id < self.number_of_players, \
-            f"Player id must be in [0, {self.number_of_players}]"
-        return self.state[-self.number_of_players + player_id]
-
-    def reward_vector_for_winner(self, winner: int):
-        assert 0 <= winner < self.number_of_players, \
-            f"Player id must be in [0, {self.number_of_players}]"
-        reward_vector = [- self.get_player_pot(i)
-                         for i in range(self.number_of_players)]
-        reward_vector[winner] += self.get_total_pot()
-        return reward_vector
-
-    def random_initial_state_vector(self):
-        # Player 1 always begins
-        player_turn = [1, 0, 0]
-        # Deal 1 card to each player
-        dealt_cards_per_player = np.random.choice(range(self.deck_size),
-                                                  size=self.number_of_players,
-                                                  replace=False)
-        player_hands = self.vector_from_dealt_hands(dealt_cards_per_player)
-
-        betting_history_vector = []
-        for _ in range(self.betting_rounds):
-            for _ in range(self.number_of_players):
-                betting_history_vector += [1] + ([0] * len(ActionType))
-
-        pot_contributions = [self.ante] * self.number_of_players
-        return player_turn + player_hands + \
-            betting_history_vector + \
-            pot_contributions
-
-    def vector_from_dealt_hands(self, dealt_cards_per_player):
-        player_hands = [[0] * self.deck_size
-                        for _ in range(self.number_of_players)]
-        player_hands = []
-        for dealt_card in dealt_cards_per_player:
-            hand = [0] * self.deck_size
-            hand[dealt_card] = 1
-            player_hands += hand
-        return player_hands
-
-    def observation_from_state(self, player_id: int):
-        '''
-        Returns the observation vector for :param player_id:. It is strictly
-        a sub-vector of the real state.
-
-        Contains:
-            - Player id
-            - Card randomly dealt to :param player_id:
-            - Betting history
-            - Amount of utility on pot by each player
-
-        :param player_id: Index from [0, self.number_of_players] of the player
-                          whose observation vector is being generated
-        :returns: Observation vector for :param player_id:
-        '''
-        encoded_id = [0] * self.number_of_players
-        encoded_id[player_id] = 1
-
-        dealt_cards_start_index = self.number_of_players
-        player_card_index = dealt_cards_start_index + \
-            (player_id * self.deck_size)
-        player_card = self.state[player_card_index:
-                                 player_card_index + self.deck_size]
-
-        betting_history_start_index = dealt_cards_start_index + \
-            (self.number_of_players * self.deck_size)
-        betting_history_and_pot = self.state[betting_history_start_index:]
-
-        return encoded_id + player_card + betting_history_and_pot
-
-    def calculate_observation_space(self):
-        player_id = OneHotEncoding(self.number_of_players)
-        dealt_card = OneHotEncoding(self.deck_size)
-
-        betting_states = [OneHotEncoding(len(ActionType) + 1)
-                          for _ in range(self.number_of_players)
-                          for _ in range(self.betting_rounds)]
-        pot_contributions = Tuple([Discrete(3)
-                                  for _ in range(self.number_of_players)])
-        return Tuple([player_id, dealt_card, *betting_states, pot_contributions])
-
-    def render(self, mode='human', close=False):
-        raise NotImplementedError('Rendering has not been coded yet')
+        best_hand = max(self.hands[i] for i in active_players)
+        winning_player = self.hands.index(best_hand)
+        rewards = [-self.pot / self.n_players] * self.n_players
+        rewards[winning_player] += self.pot  # Winner gets the pot
+        return rewards[self.current_player]
