@@ -2,10 +2,12 @@ import gym
 from gym import spaces
 import numpy as np
 
+
 class Player:
     def __init__(self, idx, hand):
         self.idx = idx
         self.hand = hand
+
 
 class KuhnPokerEnv(gym.Env):
     """Multiplayer Kuhn Poker Environment"""
@@ -38,12 +40,15 @@ class KuhnPokerEnv(gym.Env):
 
         # Initialize the game state
         self.reset()
-    
+
     def assign_hand(self, player, card):
         self.players[player].hand = card
 
     def assign_cards(self, cards):  # [0,1,2], [2,1,3], etc.
-        self.deck = cards
+        self.hands = cards
+
+    def assign_player_card(self, player_idx, card):
+        self.hands[player_idx] = card
 
     def reset(self):
         """Reset the environment to start a new game."""
