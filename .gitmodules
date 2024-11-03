@@ -1,3 +1,9 @@
 [submodule "mlx-examples"]
 	path = mlx-examples
 	url = https://github.com/pythonlearner1025/mlx-examples.git
+[submodule "SiLLM-examples"]
+	path = SiLLM-examples
+	url = https://github.com/armbues/SiLLM-examples.git
+[submodule "SiLLM"]
+	path = SiLLM
+	url = https://github.com/pythonlearner1025/SiLLM.git

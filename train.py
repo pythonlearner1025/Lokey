@@ -6,87 +6,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "mlx-examples/llms"))
 
 from mlx_lm import load, generate
 from kuhn_poker_env import KuhnPokerEnv
-from prompts import ser_llm_input, generate_comparison_samples, get_preferences
+from prompts import ser_llm_input, get_preferences
 import mlx.core as mx
 import mlx.optimizers.optimizers as optim
-
-def generate_comparison_samples(model, game_states, batch_size):
-    def sample_with_temp(state, temp):
-        # Generate two different outputs for same input with different temps
-        return {
-            'high_temp': model.generate(state, temperature=0.9),
-            'low_temp': model.generate(state, temperature=0.7)
-        }
-    
-    samples = []
-    for state in game_states[:batch_size]:
-        responses = sample_with_temp(state, temp=0.8)
-        samples.append({
-            'state': state,
-            'response_a': responses['high_temp'],
-            'response_b': responses['low_temp']
-        })
-    return samples
-
-class DPOTrainer:
-    def __init__(self, model, ref_model, beta=0.1):
-        self.model = model
-        self.ref_model = ref_model  # Reference model (usually frozen)
-        self.beta = beta  # Temperature parameter
-        
-    def compute_dpo_loss(self, chosen, rejected, states):
-        # Get log probs from current model
-        chosen_logprobs = self.model.forward(states, chosen)
-        rejected_logprobs = self.model.forward(states, rejected)
-        
-        # Get log probs from reference model
-        ref_chosen_logprobs = self.ref_model.forward(states, chosen)
-        ref_rejected_logprobs = self.ref_model.forward(states, rejected)
-        
-        # Compute reward difference
-        chosen_rewards = chosen_logprobs - ref_chosen_logprobs
-        rejected_rewards = rejected_logprobs - ref_rejected_logprobs
-        
-        # DPO loss
-        loss = -mx.log(
-            mx.sigmoid(self.beta * (chosen_rewards - rejected_rewards))
-        ).mean()
-        
-        return loss
-    
-    def train_step(self, preferences, optimizer):
-        """Single DPO training step"""
-        optimizer.zero_grad()
-        
-        # Prepare batches
-        states = [p['sample']['state'] for p in preferences]
-        chosen = [p['sample'][f'response_{p["winner"].lower()}'] for p in preferences]
-        rejected = [p['sample'][f'response_{("b" if p["winner"]=="A" else "a")}'] 
-                   for p in preferences]
-        
-        # Compute and backprop loss
-        loss = self.compute_dpo_loss(chosen, rejected, states)
-        loss.backward()
-        optimizer.step()
-        
-        return loss.item()
-
-def train_with_dpo(model, ref_model, game_data, num_steps):
-    trainer = DPOTrainer(model, ref_model)
-    optimizer = optim.Adam(model.parameters())
-    
-    for step in range(num_steps):
-        # Generate samples
-        samples = generate_comparison_samples(model, game_data, batch_size=32)
-        
-        # Get preferences
-        preferences = get_preferences(samples)
-        
-        # Train step
-        loss = trainer.train_step(preferences, optimizer)
-        
-        if step % 100 == 0:
-            print(f"Step {step}, Loss: {loss}")
 
 class Agent:
     def __init__(self, llm, position):
@@ -109,14 +31,49 @@ class Agent:
             prompt=prompt,
             max_tokens=512
         )
-        return messages
+        return response
+
+def generate_comparison_samples(agent: Agent, buffer, **kwargs):
+    def sample_with_temp(state, msg):
+        # Generate two different outputs for same input with different temps
+        return {
+            'high_temp': agent.act(state, msg, **kwargs),
+            'low_temp': agent.act(state, msg, **kwargs)
+        }
+    
+    samples = []
+    for state, msg in buffer:
+        responses = sample_with_temp(state, msg)
+        samples.append({
+            'state': state,
+            'response_a': responses['high_temp'],
+            'response_b': responses['low_temp']
+        })
+    return samples
+
+def train_with_dpo(agent: Agent, ref_model, buffer, num_steps):
+    optimizer = optim.Adam(agent.model.parameters())
+    
+    for step in range(num_steps):
+        # Generate samples
+        samples = generate_comparison_samples(agent, buffer)
+        
+        # Get preferences
+        preferences = get_preferences(samples)
+        
+        # TODO
+        # save the preferences in a dataset.
+        
+        # Train step
+        # use the siLLM library
 
 def test_model():
     model, tokenizer = load(
         #'Qwen/Qwen2-7B-Instruct-MLX',
-        'Qwen/Qwen2-1.5B-Instruct-MLX',
+        'Qwen/Qwen2.5-1.5B-Instruct',
         tokenizer_config={"eos_token": "<|im_end|>", "trust_remote_code": True},
     )
+    print('Qwen/Qwen2.5-1.5B-Instruct')
 
     print(dir(model))
 
@@ -135,4 +92,17 @@ def train():
 
 
 if __name__ == '__main__':
-    train()
+    '''
+    from datasets import load_dataset
+    dataset = load_dataset("argilla/dpo-mix-7k")
+    os.makedirs('data')
+    dataset.save_to_disk("./data/dpo-mix-7k")
+
+    from huggingface_hub import snapshot_download
+
+    # Download model to default cache directory
+    model_path = snapshot_download(repo_id='Qwen/Qwen2-1.5B-Instruct-MLX',)
+    '''
+    test_model()
+
+#    train()
