@@ -1,0 +1,3 @@
+[submodule "mlx-examples"]
+	path = mlx-examples
+	url = https://github.com/pythonlearner1025/mlx-examples.git
