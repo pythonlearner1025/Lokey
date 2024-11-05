@@ -80,13 +80,13 @@ class KuhnPokerEnv(gym.Env):
                 # TODO: unknown if this is how we want to represent the game,
                 #       or if we want the players to check themselves
                 self.bets[self.current_player] = self.max_bet
-
-            self.max_bet += 1
-            self.raised[self.current_player] = True
-            self.bets[self.current_player] = self.max_bet
-            self.players_to_act = [not p for p in self.folded]
-            self.players_to_act[self.current_player] = False
-            self.pot = sum(self.bets)
+            else:
+                self.max_bet += 1
+                self.raised[self.current_player] = True
+                self.bets[self.current_player] = self.max_bet
+                self.players_to_act = [not p for p in self.folded]
+                self.players_to_act[self.current_player] = False
+                self.pot = sum(self.bets)
 
         # after current action, player no longer gets to play
         self.players_to_act[self.current_player] = False
