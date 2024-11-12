@@ -50,7 +50,7 @@ class KuhnPokerEnv(gym.Env):
     def assign_player_card(self, player_idx, card):
         self.hands[player_idx] = card
 
-    def reset(self):
+    def reset(self, current_player=0):
         """Reset the environment to start a new game."""
         if not self._cfr:
             np.random.shuffle(self.deck)
@@ -63,7 +63,7 @@ class KuhnPokerEnv(gym.Env):
         self.folded = [False] * self.n_players  # Track if a player has folded
         self.players_to_act = [True] * self.n_players
         self.pot = sum(self.bets)
-        self.current_player = 0
+        self.current_player = current_player
         return self._get_observation()
 
     def step(self, action):
