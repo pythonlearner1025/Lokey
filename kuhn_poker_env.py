@@ -118,6 +118,14 @@ class KuhnPokerEnv(gym.Env):
         print(f"Fold Status: {self.folded}")
         print(f"Players Acting: {self.players_to_act}")
         print(f"Pot: {self.pot}")
+    
+    def ser(self):
+        out = '' 
+        out += f"Player hands: {self.hands}\n"
+        out += f"Current player: {self.current_player}\n"
+        out += f"Current bets: {self.bets}\n"
+        out += f"Pot: {self.pot}"
+        return out
 
     def _get_observation(self):
         """Return the observation for the current player."""
