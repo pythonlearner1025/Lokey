@@ -3,3 +3,4 @@ SiLLM-examples/
 mlx-examples/
 env/
 __pycache__/
+.DS_Store
